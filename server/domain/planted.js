@@ -1,0 +1,110 @@
+// Planted defects in the LiteShop sandbox (server-only: these are the answers).
+// Each defect lists the components a report may be filed under, the checklist
+// item that catches it, the reference severity (and other acceptable levels),
+// and keyword rules used to match a submitted report to it.
+
+export const PLANTED = [
+  { id: 'PB01', components: ['Menu', 'Catalog'], check: 'MN-2.1', br: 'BR1', severity: 'Minor', accepted: ['Minor'],
+    title: 'Menu: "Catalog" item is not highlighted and stays clickable on the Catalog page',
+    hint: 'Visit every page and look at the menu item of the page you are on.',
+    must: [/catalog/], groups: [/highlight|active|current|selected|differ|same (colou?r|style)/, /clickable|reload|not highlighted|menu/], min: 2 },
+  { id: 'PB02', components: ['Menu', 'Cart'], check: 'MN-2.4', br: 'BR2', severity: 'Minor', accepted: ['Minor'],
+    title: 'Menu: item is named "Basket" on the Cart page and "Cart" on other pages',
+    hint: 'Compare the menu item names on all pages.',
+    must: [/basket/], groups: [/cart|name|renamed|different|inconsistent|instead/], min: 1 },
+  { id: 'PB03', components: ['Menu'], check: 'MN-1.1', br: 'BR3', severity: 'Average', accepted: ['Average', 'Minor'],
+    title: 'Menu: "Orders" opens the Profile page',
+    hint: 'Click each menu item and check the page that opens.',
+    must: [/orders?/, /profile/], groups: [/opens?|navigat|redirect|leads|shows|displayed|instead/], min: 1 },
+
+  { id: 'PB04', components: ['Catalog'], check: 'CB-1.1', br: 'BR4', severity: 'Average', accepted: ['Average', 'Major'],
+    title: 'Catalog: unselecting one category clears all manually selected categories',
+    hint: 'Select several categories one by one, then unselect only one of them.',
+    must: [/uncheck|unselect|deselect|untick|clear/], groups: [/categor|filter|checkbox/, /all|other|every|whole|reset|cleared|remaining/], min: 2, not: /select all/ },
+  { id: 'PB05', components: ['Catalog'], check: 'CB-1.5', br: 'BR5', severity: 'Minor', accepted: ['Minor', 'Average'],
+    title: 'Catalog: clicking the "Books" label does not toggle its checkbox',
+    hint: 'Click the text labels of the category checkboxes, not the boxes.',
+    must: [/label|text|name/], groups: [/books/, /toggle|check|select|tick|nothing|not/], min: 2 },
+  { id: 'PB06', components: ['Catalog'], check: 'CB-1.3', br: 'BR6', severity: 'Average', accepted: ['Average', 'Minor'],
+    title: 'Catalog: selected filters are reset after moving to the next page and back',
+    hint: 'Select a filter, go to page 2 and come back.',
+    must: [/page|pagination|next|previous|back/], groups: [/filter|categor|checkbox/, /reset|lost|cleared|not (kept|saved|preserved)|disappear|unchecked|unselected/], min: 2 },
+  { id: 'PB07', components: ['Catalog'], check: 'CB-1.2', br: 'BR7', severity: 'Average', accepted: ['Average', 'Minor'],
+    title: 'Catalog: "Select all" stays checked after a manual unselect, and the next click unselects everything',
+    hint: 'Use "Select all", unselect one category manually, then try to select all again.',
+    must: [/select all/], groups: [/uncheck|unselect|manual|deselect/, /again|twice|two clicks|re-?select|unselects all|clears all|stays checked|remains checked|still checked|does ?n.?t select/], min: 2 },
+  { id: 'PB22', components: ['Catalog', 'Cart'], check: 'BTN-1.1', br: 'BR11', severity: 'Average', accepted: ['Average', 'Minor'],
+    title: 'Catalog: "Add to cart" works only when clicking its text, not the whole button area',
+    hint: 'Click the edges / padding of the "Add to cart" button.',
+    must: [/add to cart/], groups: [/area|padding|edge|border|corner|text only|only (the )?(text|label|name|word)|around|whole|entire|margin/, /click|press/], min: 2 },
+
+  { id: 'PB08', components: ['Search', 'Catalog'], check: 'TF-1.5', br: 'BR8', severity: 'Critical', accepted: ['Critical', 'Major'],
+    title: 'Search: a quote causes a 500 error, and "\' OR \'1\'=\'1\'; --" shows internal products with cost prices',
+    hint: 'Use the SQL injection templates from Test Data Generation in the search field.',
+    must: [/search/], groups: [/'|quote|apostrophe|sql|injection|1'='1/, /500|error|internal|hidden|cost|console|exception/], min: 2 },
+
+  { id: 'PB09', components: ['Cart'], check: null, br: 'BR9', severity: 'Major', accepted: ['Major'],
+    title: 'Cart: the 10% bulk discount is applied twice (19% off) when quantity is 10 or more',
+    hint: 'Check the total for quantities 9, 10 and 11 against BR9.',
+    must: [/discount|total|price|sum/], groups: [/\b1[0-9]\b|ten|bulk|quantity/, /19|twice|double|incorrect|wrong|81|instead|differs|less/], min: 2 },
+  { id: 'PB10', components: ['Cart'], check: 'TF-1.3', br: 'BR10', severity: 'Average', accepted: ['Average', 'Major'],
+    title: 'Cart: quantity "2,5" is accepted as 25',
+    hint: 'Try fractional values with a dot and with a comma in Quantity.',
+    must: [/quantity|qty/], groups: [/comma|\d,\d|fraction|decimal/, /25|15|accepted|multipl|turn|becomes|saved/], min: 2 },
+
+  { id: 'PB11', components: ['Checkout', 'Cart'], check: 'BTN-1.2', br: 'BR12', severity: 'Major', accepted: ['Major', 'Critical'],
+    title: 'Checkout: a fast double click on "Place order" creates two orders',
+    hint: 'Click "Place order" several times quickly, then open Orders.',
+    must: [/order/], groups: [/double|twice|two|\b2\b|several|multiple|quick|rapid|fast/, /click/, /orders|duplicate|created|placed/], min: 2 },
+
+  { id: 'PB12', components: ['Sign up'], check: 'TF-1.2', br: 'BR13', severity: 'Minor', accepted: ['Minor', 'Average'],
+    title: 'Sign up: Name accepts more than 30 characters without a validation message',
+    hint: 'Boundary values for Name: Max = 30.',
+    must: [/name/], groups: [/3[0-9]|40|max|length|long|characters|limit/, /accept|saved|no (validation|error|message)|created|allowed/], min: 2, not: /space|email/ },
+  { id: 'PB13', components: ['Sign up'], check: 'TF-3.1', br: 'BR13', severity: 'Average', accepted: ['Average', 'Minor'],
+    title: 'Sign up: a Name of spaces only is accepted',
+    hint: 'Spaces usage checks for the Name field.',
+    must: [/spaces?|whitespace|blank/], groups: [/only|blank|empty/, /name/, /accept|saved|created|no (validation|message|error)|allowed|registered/], min: 2 },
+  { id: 'PB14', components: ['Sign up'], check: 'TF-2.2', br: 'BR14', severity: 'Average', accepted: ['Average', 'Major'],
+    title: 'Sign up: email uniqueness is case-sensitive ("Anna@test.com" and "anna@test.com" both register)',
+    hint: 'Register the same email twice with different letter case.',
+    must: [/e-?mail/], groups: [/case|upper|capital|lower|letter/, /duplicate|twice|two accounts|unique|again|already|second|both/], min: 2 },
+  { id: 'PB15', components: ['Sign up'], check: 'BTN-1.3', br: 'BR16', severity: 'Minor', accepted: ['Minor', 'Average'],
+    title: 'Sign up: "Create account" button is hidden (not disabled) until Terms is checked',
+    hint: 'Watch the submit button before and after accepting the Terms.',
+    must: [/button|create a?c?count/], groups: [/hidden|disappear|not (visible|shown|displayed)|invisible|appears only|absent|missing/, /terms|checkbox/], min: 2 },
+  { id: 'PB16', components: ['Sign up'], check: 'BTN-2.1', br: 'BR16', severity: 'Minor', accepted: ['Minor', 'Average'],
+    title: 'Sign up: typo in the button name "Create acount"',
+    hint: 'Read every button name letter by letter.',
+    must: [/acount|typo|spelling|misspel|grammat/], groups: [/create|button/], min: 1 },
+  { id: 'PB17', components: ['Sign up'], check: 'TF-4.2', br: 'BR17', severity: 'Minor', accepted: ['Minor'],
+    title: 'Sign up: the Tab key focuses the disabled Promo code field',
+    hint: 'Move through the form with Tab only.',
+    must: [/\btab\b/], groups: [/promo/, /disabled|focus/], min: 2 },
+  { id: 'PB18', components: ['Sign up'], check: 'TF-5.5', br: 'BR15', severity: 'Minor', accepted: ['Minor'],
+    title: 'Sign up: required Phone field is not marked with *',
+    hint: 'Which fields are required, and which are marked?',
+    must: [/phone/], groups: [/asterisk|\*|mark|required|symbol/], min: 1 },
+
+  { id: 'PB19', components: ['Profile', 'Checkout'], check: 'TF-1.1', br: 'BR18', severity: 'Major', accepted: ['Major', 'Average'],
+    title: 'Profile: City is not saved (console TypeError), so checkout shows no delivery city',
+    hint: 'Save every profile field, reload, and look at Checkout.',
+    must: [/city/], groups: [/profile|save/, /not saved|empty|lost|disappear|reset|not (kept|stored|displayed)|—|dash|blank|missing/], min: 2 },
+
+  { id: 'PB20', components: ['Reviews'], check: 'TF-1.4', br: 'BR19', severity: 'Critical', accepted: ['Critical', 'Major'],
+    title: 'Reviews: HTML tags in a review are rendered and scripts are executed',
+    hint: 'Post a review with the HTML tags and JavaScript templates.',
+    must: [/review/], groups: [/<|html|tag|script|alert|italic|bold|span/, /render|execut|shown|pop-?up|formatted|red|displayed|dialog/], min: 2 },
+  { id: 'PB21', components: ['Reviews'], check: 'TF-3.2', br: 'BR20', severity: 'Minor', accepted: ['Minor'],
+    title: 'Reviews: leading/trailing spaces in the author name are not removed',
+    hint: 'Spaces usage checks for the Author field.',
+    must: [/spaces?/], groups: [/author|name/, /leading|trailing|not (trimmed|removed|truncated)|kept|before|after|beginning|end/], min: 2 },
+];
+
+export const PLANTED_BY_ID = Object.fromEntries(PLANTED.map(p => [p.id, p]));
+
+/** Public view: no keywords, no titles until found. */
+export function publicPlanted(p, found) {
+  const base = { id: p.id, components: p.components, check: p.check, br: p.br, hint: p.hint };
+  return found ? { ...base, title: p.title, severity: p.severity, accepted: p.accepted } : base;
+}
