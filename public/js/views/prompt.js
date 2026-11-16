@@ -3,7 +3,7 @@
 import { h, mount, copyText } from '../ui.js';
 
 // Paste the share link of the AI chat here (Claude: Share → Copy link).
-export const CHAT_LINK = '';
+export const CHAT_LINK = 'https://claude.ai/share/4184875d-e4e6-4f1e-97b6-5027d65a4ec3';
 
 export const INITIAL_PROMPT = `Please create an application that can solve the most complicated problem you have faced during the training. It should have more than 5 modules, sections and a functional part with complicated business logic.
 Please don't forget to use Prompt rules and techniques.
