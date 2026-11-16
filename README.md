@@ -13,7 +13,7 @@ against the team's report standard.
 | 2 | Test runs | Run Text Field / Button / Checkbox / Menu checklists against a component (Pass / Fail / Blocked / N/A) |
 | 3 | Severity wizard | Table 2 criteria + project context + documented raise/lower rules → severity with an explanation |
 | 4 | Report builder | Jira layout, live quality check of every rule of the standard, Jira-markup export |
-| 5 | Tracker | List / board, Jira-like workflow with roles (Tester, Developer, Lead), comments, history |
+| 5 | Tracker | List / board by severity; the reporter edits their report and re-checks its quality; comments, history |
 | 6 | Knowledge base | Severity tables, report standard, checklists, test data, boundary-value generator, requirements |
 | 7 | LiteShop sandbox | The application under test: menu, catalog, search, cart, checkout, sign up, profile, reviews |
 | 8 | Prompt report | Submission part 1: initial vs improved prompt, features of a good prompt, AI mistakes |
@@ -21,10 +21,12 @@ against the team's report standard.
 ## Business rules (enforced on the server)
 
 - A report with any **error-level** violation of the standard cannot be submitted (HTTP 422).
-- The tester sets **Severity**; only the **Lead** sets **Priority** (default "Major").
-- Severity changes by **one level** and only with a documented reason; "to attract the PM's attention" is rejected.
-- Workflow: Open → In Progress → Resolved (resolution required) → Closed; Reopen needs a comment;
-  "Won't Fix" is Lead-only; Duplicate must link an existing non-duplicate bug; a Tester must confirm re-testing before closing a fixed bug.
+- Everyone is a **Tester**. Reports keep the Jira template values: Status Open, Resolution Unresolved,
+  Priority Major (set by the PM outside the app), Assignee Unassigned.
+- Only the **reporter** can edit a report. An edit must pass the same quality check; the history shows each
+  changed field and the quality score before and after. An improved report can still earn a planted-defect match.
+- **Severity** is locked in the editor: the reporter changes it on the report page by **one level**, only with a
+  documented reason; "to attract the PM's attention" is rejected.
 - A test run cannot be completed while a check is "Not run" or a failed check has no linked bug;
   Blocked must name the blocking defect, N/A needs a reason; completed runs are locked.
 - Each report is matched to a planted defect; its severity is graded (exact / acceptable / off). Repeat finds are flagged as possible duplicates.
@@ -42,10 +44,12 @@ against the team's report standard.
 ```bash
 npm install
 npm run dev          # http://localhost:3000 (in-memory database)
-npm test             # 19 unit + API tests
+npm test             # 21 unit + API tests
 ```
 
 With a real database: `DATABASE_URL="postgres://…" npm run dev`. Tables and demo data are created automatically.
+
+Demo data is seeded once per `SEED_VERSION` in `server/seed.js`. Changing that value **wipes all app data once** on the next start and reseeds it.
 
 ## Deploy (Vercel + Neon)
 
@@ -59,11 +63,11 @@ With a real database: `DATABASE_URL="postgres://…" npm run dev`. Tables and de
 ```
 api/index.js              Vercel function entry
 server/app.js             API routes
-server/services.js        Bugs, workflow, test runs, statistics
+server/services.js        Reports, editing, severity changes, test runs, statistics
 server/shop.js            LiteShop back end (with planted defects)
 server/domain/planted.js  The 22 planted defects (answers, server-only)
 server/domain/matcher.js  Report → planted defect matching, severity grading
-public/shared/            Linter, severity engine, workflow, catalog, requirements
+public/shared/            Linter, severity engine, report rules, catalog, requirements
 public/js/views/          Lab modules
 public/sandbox/           LiteShop front end (with planted defects)
 tests/                    node:test suites

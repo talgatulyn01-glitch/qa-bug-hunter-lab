@@ -72,7 +72,7 @@ export const PLANTED = [
   { id: 'PB15', components: ['Sign up'], check: 'BTN-1.3', br: 'BR16', severity: 'Minor', accepted: ['Minor', 'Average'],
     title: 'Sign up: "Create account" button is hidden (not disabled) until Terms is checked',
     hint: 'Watch the submit button before and after accepting the Terms.',
-    must: [/button|create a?c?count/], groups: [/hidden|disappear|not (visible|shown|displayed)|invisible|appears only|absent|missing/, /terms|checkbox/], min: 2 },
+    must: [/button|create a?c?count/], groups: [/hidden|disappear|not (visible|shown|displayed)|invisible|appears only|is absent|button is missing/, /terms|checkbox/], min: 2, not: /acount|typo|spelling|misspel|grammat/ },
   { id: 'PB16', components: ['Sign up'], check: 'BTN-2.1', br: 'BR16', severity: 'Minor', accepted: ['Minor', 'Average'],
     title: 'Sign up: typo in the button name "Create acount"',
     hint: 'Read every button name letter by letter.',

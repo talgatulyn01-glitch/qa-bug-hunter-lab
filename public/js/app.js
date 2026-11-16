@@ -1,7 +1,6 @@
-// Router + actor picker. Each module renders into #view.
-import { h, mount, modal, field, select, toast } from './ui.js';
+// Router + tester name picker. Each module renders into #view.
+import { h, mount, modal, field, toast } from './ui.js';
 import { getActor, setActor, api } from './api.js';
-import { ROLES } from '../shared/workflow.js';
 import { renderDashboard } from './views/dashboard.js';
 import { renderRuns, renderRun } from './views/runs.js';
 import { renderSeverity } from './views/severity.js';
@@ -53,31 +52,25 @@ export function pickActor(force = false) {
   const cur = getActor();
   if (cur && !force) return;
   const name = h('input', { value: cur?.name || '', placeholder: 'e.g. Talgat', maxlength: 60, autocomplete: 'name' });
-  const role = select(ROLES, cur?.role || 'Tester');
-  const roleHelp = h('ul.role-help', {},
-    h('li', {}, h('b', {}, 'Tester'), ' runs checklists, reports bugs, sets Severity, verifies fixes.'),
-    h('li', {}, h('b', {}, 'Developer'), ' starts work on bugs and resolves them.'),
-    h('li', {}, h('b', {}, 'Lead'), ' (project manager) sets Priority, assigns, can do every transition.'));
   const err = h('p.form-error', { role: 'alert' });
   const save = () => {
     const n = name.value.trim();
     if (n.length < 2) { err.textContent = 'Enter a name of at least 2 characters.'; name.focus(); return; }
-    setActor({ name: n, role: role.value });
+    setActor({ name: n, role: 'Tester' });
     m.close();
-    toast(`Acting as ${n} (${role.value})`, 'ok');
+    toast(`Testing as ${n}`, 'ok');
   };
   const m = modal('Who is testing?', h('form', { onsubmit: e => { e.preventDefault(); save(); } },
-    h('p.muted', {}, 'Your name is used as the Reporter in bug reports and on the leaderboard. Switch roles any time to try the whole workflow.'),
+    h('p.muted', {}, 'Your name is the Reporter of your bug reports and appears on the leaderboard. Only you can edit or change the severity of your reports; other testers can read and comment on them.'),
     field('Name', name, { required: true, id: 'actor-name' }),
-    field('Role', role, { id: 'actor-role' }),
-    roleHelp, err,
+    err,
     h('div.actions', {}, h('button.primary', { type: 'submit' }, 'Start'))));
 }
 
 function renderActorChip() {
   const a = getActor();
   const chip = document.getElementById('actor');
-  mount(chip, a ? [h('span.avatar', {}, a.name.slice(0, 1).toUpperCase()), h('span', {}, a.name), h('span.role', {}, a.role)] : 'Choose user');
+  mount(chip, a ? [h('span.avatar', {}, a.name.slice(0, 1).toUpperCase()), h('span', {}, a.name), h('span.role', {}, 'Tester')] : 'Enter your name');
 }
 
 document.getElementById('actor').addEventListener('click', () => pickActor(true));

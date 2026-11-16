@@ -9,8 +9,8 @@ let server; let base;
 before(async () => { server = app.listen(0); await new Promise(r => server.once('listening', r)); base = `http://127.0.0.1:${server.address().port}/api`; });
 after(() => server.close());
 
-const call = async (method, path, body, who = ['Tess', 'Tester'], extra = {}) => {
-  const res = await fetch(base + path, { method, headers: { 'Content-Type': 'application/json', 'X-User-Name': encodeURIComponent(who[0]), 'X-User-Role': who[1], ...extra }, body: body ? JSON.stringify(body) : undefined });
+const call = async (method, path, body, who = ['Tess'], extra = {}) => {
+  const res = await fetch(base + path, { method, headers: { 'Content-Type': 'application/json', 'X-User-Name': encodeURIComponent(who[0]), ...extra }, body: body ? JSON.stringify(body) : undefined });
   return { status: res.status, body: await res.json() };
 };
 const SHOP = { 'X-Shop-Session': 'test-session-1234' };
@@ -31,9 +31,8 @@ test('health and seed', async () => {
   assert.equal(bugs.body.length, 3);
 });
 
-test('report lifecycle with business rules', async () => {
-  assert.equal((await call('POST', '/bugs', report, ['', 'Tester'])).status, 401);
-  assert.equal((await call('POST', '/bugs', report, ['Dev', 'Developer'])).status, 403);
+test('report submission rules', async () => {
+  assert.equal((await call('POST', '/bugs', report, [''])).status, 401);
   const bad = await call('POST', '/bugs', { ...report, summary: 'BROKEN' });
   assert.equal(bad.status, 422); assert.ok(bad.body.lint.errors > 0);
 
@@ -42,35 +41,61 @@ test('report lifecycle with business rules', async () => {
   assert.equal(ok.body.discovery.found, true);
   assert.equal(ok.body.discovery.planted.id, 'PB19');
   assert.equal(ok.body.discovery.severityVerdict, 'exact');
-  const key = ok.body.key;
-  assert.equal((await call('GET', `/bugs/${key}`)).body.priority, 'Major', 'tester cannot set priority');
+  const created = (await call('GET', `/bugs/${ok.body.key}`)).body;
+  assert.equal(created.priority, 'Major', 'priority stays with the PM');
+  assert.equal(created.status, 'Open');
+  assert.equal(created.assignee, 'Unassigned');
 
   const dup = await call('POST', '/bugs', { ...report, summary: 'Profile: City is not saved when the profile is saved' });
-  assert.equal(dup.body.discovery.duplicateOf, key);
-
+  assert.equal(dup.body.discovery.duplicateOf, ok.body.key);
   const ex = await call('POST', '/bugs', { ...GOOD_EXAMPLE, environment: 'OS: Linux Browser: Chrome 131' });
   assert.equal(ex.body.discovery.example, true);
+});
 
-  assert.equal((await call('POST', `/bugs/${key}/transition`, { to: 'In Progress' })).status, 409);
-  const started = await call('POST', `/bugs/${key}/transition`, { to: 'In Progress' }, ['Dan', 'Developer']);
-  assert.equal(started.status, 200);
-  assert.equal(started.body.assignee, 'Dan', 'developer is auto-assigned');
-  assert.equal((await call('POST', `/bugs/${key}/transition`, { to: 'Resolved', resolution: "Won't Fix" }, ['Dan', 'Developer'])).status, 409);
-  assert.equal((await call('POST', `/bugs/${key}/transition`, { to: 'Resolved', resolution: 'Fixed' }, ['Dan', 'Developer'])).status, 200);
-  assert.equal((await call('POST', `/bugs/${key}/transition`, { to: 'Closed' })).status, 409, 'verification required');
-  const closed = await call('POST', `/bugs/${key}/transition`, { to: 'Closed', verified: true });
-  assert.equal(closed.body.status, 'Closed');
-  const reo = await call('POST', `/bugs/${key}/transition`, { to: 'Reopened', comment: 'Reproduced again in Firefox 133.' });
-  assert.equal(reo.body.resolution, 'Unresolved');
-  assert.ok(reo.body.history.length >= 5);
-  assert.equal(reo.body.comments.length, 1);
+test('reporter edits a report: permissions, quality bar, history, late discovery', async () => {
+  const vague = {
+    ...report,
+    summary: 'Profile: entered value is lost after saving',
+    steps: ['Open the LiteShop sandbox (/sandbox/#/profile)', 'Enter "Almaty" in the third field', 'Click "Save"', 'Reload the page and compare with step 2'],
+    actual: 'The message "Profile saved." is shown, but after reload the third field is empty. Reproduced 3/3 times in Chrome 131.',
+    expected: 'The value entered in step 2 is kept after reload.',
+  };
+  const made = await call('POST', '/bugs', vague, ['Uma']);
+  assert.equal(made.status, 201);
+  assert.equal(made.body.discovery.found, false);
+  assert.ok(made.body.lint.score < 100);
+  const key = made.body.key;
 
-  assert.equal((await call('PATCH', `/bugs/${key}`, { field: 'priority', value: 'Blocker' })).status, 403);
-  assert.equal((await call('PATCH', `/bugs/${key}`, { field: 'priority', value: 'Blocker' }, ['Lea', 'Lead'])).body.priority, 'Blocker');
-  assert.equal((await call('PATCH', `/bugs/${key}`, { field: 'severity', value: 'Critical', reasonId: 'X1' })).status, 403);
-  const sev = await call('PATCH', `/bugs/${key}`, { field: 'severity', value: 'Average', reasonId: 'L3' });
+  assert.equal((await call('PUT', `/bugs/${key}`, { expected: 'x' }, ['Bob'])).status, 403, 'only the reporter');
+  assert.equal((await call('PUT', `/bugs/${key}`, { severity: 'Critical' }, ['Uma'])).status, 403, 'severity locked');
+  assert.equal((await call('PUT', `/bugs/${key}`, { summary: vague.summary }, ['Uma'])).status, 409, 'nothing changed');
+  assert.equal((await call('PUT', `/bugs/${key}`, { summary: 'BROKEN' }, ['Uma'])).status, 422, 'same quality bar');
+
+  const upd = await call('PUT', `/bugs/${key}`, {
+    actual: 'The message "Profile saved." is shown, but after reload the City field is empty. Reproduced 3/3 times in Chrome 131.',
+    expected: 'The city is saved and is used as the delivery city at checkout (BR18).',
+  }, ['Uma']);
+  assert.equal(upd.status, 200);
+  assert.deepEqual(upd.body.changed, ['actual', 'expected']);
+  assert.ok(upd.body.lint.score > made.body.lint.score);
+  assert.equal(upd.body.discovery.planted.id, 'PB19', 'improved report earns the match');
+  const after = (await call('GET', `/bugs/${key}`)).body;
+  assert.equal(after.quality_score, upd.body.lint.score);
+  const fields = after.history.map(x => x.field);
+  for (const f of ['created', 'actual', 'expected', 'quality_score', 'planted_id']) assert.ok(fields.includes(f), f);
+
+  const c = await call('POST', `/bugs/${key}/comments`, { body: 'Reproduced on Safari 18 too.' }, ['Bob']);
+  assert.equal(c.body.comments.length, 1, 'other testers can comment');
+});
+
+test('severity change by the reporter only, with a documented reason', async () => {
+  const key = (await call('GET', '/bugs?reporter=Tess')).body.find(b => b.severity === 'Major').key;
+  assert.equal((await call('POST', `/bugs/${key}/severity`, { value: 'Average', reasonId: 'L3' }, ['Bob'])).status, 403);
+  assert.equal((await call('POST', `/bugs/${key}/severity`, { value: 'Critical', reasonId: 'X1' })).status, 403);
+  assert.equal((await call('POST', `/bugs/${key}/severity`, { value: 'Minor', reasonId: 'L3' })).status, 403, 'two levels');
+  const sev = await call('POST', `/bugs/${key}/severity`, { value: 'Average', reasonId: 'L3' });
   assert.equal(sev.body.severity, 'Average');
-  assert.equal(sev.body.severity_verdict, 'accepted');
+  assert.equal(sev.body.history.at(-1).reason.length > 10, true);
 });
 
 test('test run completion rules', async () => {
@@ -93,7 +118,7 @@ test('test run completion rules', async () => {
 });
 
 test('sandbox planted back-end defects', async () => {
-  const s = (m, p, b) => call(m, '/shop' + p, b, ['x', 'Tester'], SHOP);
+  const s = (m, p, b) => call(m, '/shop' + p, b, ['xx'], SHOP);
   assert.equal((await s('GET', "/products?q=1'")).status, 500);
   const inj = await s('GET', "/products?q=" + encodeURIComponent("' OR '1'='1'; --"));
   assert.ok(inj.body.products.some(p => p.name.includes('INTERNAL')));

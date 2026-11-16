@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { lintReport } from '../public/shared/linter.js';
 import { evaluateSeverity, validateSeverityChange } from '../public/shared/severity.js';
-import { checkTransition, checkFieldEdit, availableTransitions } from '../public/shared/workflow.js';
+import { checkReportEdit, checkSeverityChange } from '../public/shared/workflow.js';
 import { boundaryValues } from '../public/shared/catalog.js';
 import { BAD_EXAMPLE, GOOD_EXAMPLE } from '../public/shared/examples.js';
 import { matchPlanted, gradeSeverity } from '../server/domain/matcher.js';
@@ -89,35 +89,21 @@ test('severity change validation', () => {
   assert.equal(validateSeverityChange({ from: 'Minor', to: 'Enhancement', reasonId: 'L1' }).ok, false);
 });
 
-test('workflow: roles and required data', () => {
-  const bug = { key: 'TC-1', status: 'Open', reporter: 'Ann', severity: 'Minor', resolution: 'Unresolved' };
-  const T = { name: 'Ann', role: 'Tester' }; const D = { name: 'Dan', role: 'Developer' }; const L = { name: 'Lea', role: 'Lead' };
-  assert.equal(checkTransition(bug, 'In Progress', T).ok, false);
-  assert.equal(checkTransition(bug, 'In Progress', D).ok, true);
-  assert.equal(checkTransition(bug, 'Closed', L).ok, false, 'no such transition');
-  assert.equal(checkTransition(bug, 'Resolved', D, {}).ok, false, 'resolution required');
-  assert.equal(checkTransition(bug, 'Resolved', D, { resolution: "Won't Fix" }).ok, false);
-  assert.equal(checkTransition(bug, 'Resolved', L, { resolution: "Won't Fix" }).ok, true);
-  assert.equal(checkTransition(bug, 'Resolved', D, { resolution: 'Duplicate', duplicateOf: 'TC-1' }).ok, false);
-  assert.equal(checkTransition(bug, 'Resolved', D, { resolution: 'Duplicate', duplicateOf: 'TC-2' }, { findBug: k => (k === 'TC-2' ? { key: 'TC-2', resolution: 'Duplicate', duplicate_of: 'TC-0' } : null) }).ok, false, 'chain');
-  const resolved = { ...bug, status: 'Resolved', resolution: 'Fixed' };
-  assert.equal(checkTransition(resolved, 'Closed', T, {}).ok, false, 'must confirm verification');
-  assert.equal(checkTransition(resolved, 'Closed', T, { verified: true }).ok, true);
-  assert.equal(checkTransition(resolved, 'Reopened', T, { comment: 'short' }).ok, false);
-  const re = checkTransition(resolved, 'Reopened', T, { comment: 'Still reproduced in Firefox 133.' });
-  assert.equal(re.changes.resolution, 'Unresolved');
-  assert.deepEqual(availableTransitions(bug, 'Tester'), []);
+test('report rules: only the reporter edits, severity locked in the editor', () => {
+  const bug = { key: 'TC-1', reporter: 'Ann', severity: 'Minor' };
+  assert.equal(checkReportEdit(bug, { name: 'Bob' }).ok, false);
+  assert.equal(checkReportEdit(bug, null).ok, false);
+  assert.equal(checkReportEdit(bug, { name: 'Ann' }, { summary: 'x' }).ok, true);
+  assert.equal(checkReportEdit(bug, { name: 'Ann' }, { severity: 'Minor' }).ok, true, 'unchanged severity is fine');
+  assert.equal(checkReportEdit(bug, { name: 'Ann' }, { severity: 'Major' }).ok, false);
 });
 
-test('workflow: field permissions', () => {
-  const bug = { key: 'TC-1', status: 'Open', reporter: 'Ann', severity: 'Minor' };
-  assert.equal(checkFieldEdit(bug, 'priority', 'Blocker', { name: 'Ann', role: 'Tester' }).ok, false);
-  assert.equal(checkFieldEdit(bug, 'priority', 'Blocker', { name: 'Lea', role: 'Lead' }).ok, true);
-  assert.equal(checkFieldEdit(bug, 'assignee', 'Zed', { name: 'Dan', role: 'Developer' }).ok, false);
-  assert.equal(checkFieldEdit(bug, 'assignee', 'Dan', { name: 'Dan', role: 'Developer' }).ok, true);
-  assert.equal(checkFieldEdit(bug, 'severity', 'Average', { name: 'Bob', role: 'Tester' }, { reasonId: 'R1' }).ok, false, 'not reporter');
-  assert.equal(checkFieldEdit(bug, 'severity', 'Average', { name: 'Ann', role: 'Tester' }, { reasonId: 'R1' }).ok, true);
-  assert.equal(checkFieldEdit(bug, 'severity', 'Critical', { name: 'Lea', role: 'Lead' }, { reasonId: 'AG' }).ok, true);
+test('report rules: severity change by the reporter with a documented reason', () => {
+  const bug = { key: 'TC-1', reporter: 'Ann', severity: 'Minor' };
+  assert.equal(checkSeverityChange(bug, 'Average', { name: 'Bob' }, 'R1').ok, false, 'not the reporter');
+  assert.equal(checkSeverityChange(bug, 'Average', { name: 'Ann' }, 'R1').ok, true);
+  assert.equal(checkSeverityChange(bug, 'Average', { name: 'Ann' }, 'X1').ok, false, 'forbidden reason');
+  assert.equal(checkSeverityChange(bug, 'Huge', { name: 'Ann' }, 'R1').ok, false);
 });
 
 test('boundary values', () => {
@@ -137,6 +123,8 @@ test('matcher: links reports to the right planted defect', () => {
   assert.equal(m({ component: 'Checkout', summary: 'Checkout: double click on "Place order" creates two orders' }), 'PB11');
   assert.equal(m({ component: 'Profile', summary: 'Profile: City is empty after saving the profile' }), 'PB19');
   assert.equal(m({ component: 'Cart', summary: 'Cart: page title is too small' }), undefined);
+  assert.equal(m({ component: 'Sign up', summary: 'Sign up: button name is "Create acount"', steps: ['Check the "Terms" checkbox'], actual: 'The button reads "Create acount" (one "c" missing).' }), 'PB16', 'typo, not hidden button');
+  assert.equal(m({ component: 'Sign up', summary: 'Sign up: "Create account" button is hidden until the Terms checkbox is checked' }), 'PB15');
   assert.equal(gradeSeverity(PLANTED_BY_ID.PB16, 'Average').verdict, 'accepted');
   assert.equal(gradeSeverity(PLANTED_BY_ID.PB08, 'Minor').verdict, 'off');
 });

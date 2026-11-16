@@ -38,7 +38,7 @@ export async function renderRuns(view, { actor }) {
         : h('div.panel.muted', {}, 'No runs yet.')),
       h('form.panel.sticky', { onsubmit: create },
         h('h2', {}, 'New test run'),
-        !actor || actor.role === 'Developer' ? h('div.callout.warn', {}, 'Test runs are executed by Testers or Leads. Switch role in the top right.') : null,
+        !actor ? h('div.callout.warn', {}, 'Enter your name (top right) to create a run.') : null,
         field('Name', name, { required: true, id: 'run-name' }),
         field('Component under test', target, { required: true, id: 'run-target' }),
         h('div.field', {}, h('span.label', {}, 'Checklists', h('span.req', {}, ' *')),

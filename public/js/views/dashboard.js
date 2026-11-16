@@ -2,7 +2,6 @@
 import { h, mount, barChart, sevBadge } from '../ui.js';
 import { api } from '../api.js';
 import { SEVERITY_LEVELS, COMPONENTS } from '../../shared/catalog.js';
-import { STATUSES } from '../../shared/workflow.js';
 
 export async function renderDashboard(view, { actor }) {
   const s = await api('GET', '/stats?reporter=' + encodeURIComponent(actor?.name || ''));
@@ -31,7 +30,7 @@ export async function renderDashboard(view, { actor }) {
       h('div.tile', {}, h('div.num', {}, found, h('small', {}, ` / ${s.plantedTotal}`)), h('div.cap', {}, 'Planted defects you found'), h('div.meter', {}, h('i', { style: { width: pct + '%' } }))),
       h('div.tile', {}, h('div.num', {}, me ? me.avgScore : '—'), h('div.cap', {}, 'Your average report quality')),
       h('div.tile', {}, h('div.num', {}, me?.severityAccuracy != null ? me.severityAccuracy : '—', me?.severityAccuracy != null ? h('small', {}, '%') : null), h('div.cap', {}, 'Your severity accuracy')),
-      h('div.tile', {}, h('div.num', {}, s.totals.open, h('small', {}, ` / ${s.totals.bugs}`)), h('div.cap', {}, 'Open bugs in the tracker'))),
+      h('div.tile', {}, h('div.num', {}, s.totals.bugs), h('div.cap', {}, `Reports in the tracker from ${s.totals.testers} tester${s.totals.testers === 1 ? '' : 's'}`))),
 
     h('div.panel', { style: { marginTop: '16px' } },
       h('h2', {}, 'How to use the lab'),
@@ -41,17 +40,17 @@ export async function renderDashboard(view, { actor }) {
         h('li', {}, h('b', {}, 'Mark the result'), ' of every check. For a failed one click "Log bug".'),
         h('li', {}, h('b', {}, 'Set severity'), ' with the ', h('a', { href: '#/severity' }, 'severity wizard'), ' (Table 2 + the change rules).'),
         h('li', {}, h('b', {}, 'Write the report'), ' until the quality check is green, then submit. A matched planted defect shows up below.'),
-        h('li', {}, h('b', {}, 'Play the workflow'), ': switch to Developer to resolve, back to Tester to verify and close.'))),
+        h('li', {}, h('b', {}, 'Improve it'), ': open your report in the ', h('a', { href: '#/bugs' }, 'tracker'), ', fix the remaining remarks with "Edit report" and watch the quality score grow.'))),
 
     h('div.panel', {},
-      h('div.row', {}, h('h2', { style: { margin: 0 } }, 'Planted defects'), h('span.spacer'), h('span.muted.small', {}, actor ? 'Your progress' : 'Choose a user to track progress')),
+      h('div.row', {}, h('h2', { style: { margin: 0 } }, 'Planted defects'), h('span.spacer'), h('span.muted.small', {}, actor ? 'Your progress' : 'Enter your name to track progress')),
       h('p.small.muted', {}, 'Each tile names the components where the defect lives, the checklist item that catches it, and the requirement it breaks.'),
       h('div.discovery', {}, s.discovery.map(pbTile))),
 
     h('div.grid.g3', { style: { marginTop: '16px' } },
-      h('div.panel', {}, barChart('Bugs by severity', s.bySeverity, { order: SEVERITY_LEVELS })),
-      h('div.panel', {}, barChart('Bugs by status', s.byStatus, { order: STATUSES })),
-      h('div.panel', {}, barChart('Bugs by component', s.byComponent, { order: COMPONENTS }))),
+      h('div.panel', {}, barChart('Reports by severity', s.bySeverity, { order: SEVERITY_LEVELS })),
+      h('div.panel', {}, barChart('Reports by quality grade', s.byGrade, { order: ['A', 'B', 'C', 'D', 'F'] })),
+      h('div.panel', {}, barChart('Reports by component', s.byComponent, { order: COMPONENTS }))),
 
     h('div.panel', { style: { marginTop: '16px' } },
       h('h2', {}, 'Leaderboard'),

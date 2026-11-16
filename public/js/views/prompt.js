@@ -37,17 +37,17 @@ Build a web application, "QA Bug Hunter Lab", where a trainee practices exactly 
 2. Test runs: execute the checklists against a component (Pass / Fail / Blocked / N/A).
 3. Severity wizard: Table 2 criteria + project context + the documented raise/lower rules.
 4. Bug report builder in our Jira layout with a live quality check of every standard rule.
-5. Tracker with a Jira-like workflow and roles (Tester / Developer / Lead).
+5. Tracker of submitted reports (tester side only: no developer or manager roles).
 6. Dashboard: found planted defects, report quality, severity accuracy, leaderboard.
 7. Knowledge base with the course material and a boundary-value generator.
 
 # Business rules (must be enforced on the server, not only in the UI)
 - A report with any error-level rule violation cannot be submitted.
-- The tester sets Severity; only the Lead sets Priority (default "Major").
-- Severity may change by one level and only for a documented reason;
+- The tester sets Severity; Priority stays "Major" (it is set by the PM, outside this app).
+- Only the tester who submitted a report can edit it; an edit must pass the same quality check,
+  and the history shows the quality score before and after. Other testers can read and comment.
+- Severity is locked in the editor: it changes by one level and only for a documented reason;
   "to attract the PM's attention" is rejected.
-- Workflow: Open → In Progress → Resolved (resolution required) → Closed; Reopen needs a comment;
-  "Won't Fix" is Lead-only; a Duplicate must link an existing, non-duplicate bug.
 - A test run cannot be completed while a check is "Not run" or a failed check has no linked bug;
   Blocked must name the blocking defect; N/A needs a reason.
 - A submitted report is matched to a planted defect; its severity is graded against the reference.
@@ -68,7 +68,7 @@ Note: only when another defect blocks the check.
 - Shared business logic is used by both the browser (live feedback) and the server (enforcement).
 
 # Acceptance criteria
-- The mentor opens one link, picks a name and role, and every button works.
+- The mentor opens one link, enters a name, and every button works.
 - Unit tests cover the linter, severity engine, workflow, matcher; an API smoke test passes.
 - All pages are checked in a real browser before delivery.
 
@@ -112,8 +112,12 @@ const MISTAKES = [
   ['Unreliable PDF extraction', 'Text extracted from the "Definition of severity" PDF lost the table borders: 11 Critical criteria could easily be read as Major. The AI rendered the page as an image and verified the table before encoding it.', 'Verify extracted data against the original, especially tables.'],
   ['Bugs in its own code', 'While building, the AI wrote a success dialog whose links navigated away but left the dialog open, and a boundary-value function with confusing deduplication logic (caught on review). Browser testing then showed that the score rings never filled (CSS custom properties cannot be set with Object.assign on element.style) and that chart panels were misaligned by a margin rule.', 'Never accept generated code without review, tests and a look at the real page; ask for verification as part of the prompt.'],
   ['Side effects of a "small" change', 'Adding auto-assignment on "Start progress" silently broke the demo-data seeding (a later step tried to assign the same person again), which took the whole API down. The automated tests caught it immediately.', 'Re-run the full test suite after every change, however small.'],
+  ['Scope creep', 'The AI added a Developer / Lead role-play workflow (start progress, resolve, verify, close) that was never asked for. The task was the tester\'s skills only, so the user had it removed.', 'State the scope and the user role in the prompt; review the AI\'s plan before it builds.'],
+  ['Unexplained jargon', 'Asking a follow-up question, the AI used the Jira term "reporter" without explaining it, and the user had to ask what it meant.', 'Ask the AI to use plain words, or to define a term the first time it appears.'],
+  ['Wrong details in demo data', 'A demo bug report written by the AI said the "Basket" item was the fourth menu item; it is the third. It was noticed when the report was rewritten.', 'Check generated examples against the real application, just like any other bug report.'],
+  ['Keyword matching too greedy', 'The planted-defect matcher linked the demo report "button name is Create acount (one c missing)" to the "button is hidden" defect, because the word "missing" matched. It was spotted on a screenshot, fixed, and covered by a regression test.', 'Look at real outputs, not only at passing tests; turn every found bug into a test.'],
   ['Test that lied', 'An automated browser check reported the sandbox sign-up as broken. The cause was the test reading the message before the server answered, not the app. The AI investigated before "fixing" working code.', 'When a test fails, find out whether the product or the test is wrong.'],
-  ['Silent assumptions', 'The severity document does not map Severity to Priority. A naive answer equates them. The app keeps them separate (Lead sets Priority) and marks its own "lab policy" rules as such.', 'Ask the AI to label anything that is its own assumption rather than from the source.'],
+  ['Silent assumptions', 'The severity document does not map Severity to Priority. A naive answer equates them. The app keeps them separate (Priority stays with the PM, outside the app) and marks its own "lab policy" rules as such.', 'Ask the AI to label anything that is its own assumption rather than from the source.'],
 ];
 
 export async function renderPrompt(view) {

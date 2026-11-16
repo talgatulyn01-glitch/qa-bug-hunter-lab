@@ -1,8 +1,10 @@
 // Business services. Every function takes `db` ({query}) so it can be used by
 // routes and by the seeder. Errors are thrown as AppError(status, message, extra).
+// Everyone in the app is a Tester: the bug keeps the Jira template values
+// (Open / Unresolved / Major / Unassigned); the reporter can edit their report.
 import { lintReport } from '../public/shared/linter.js';
-import { checkTransition, checkFieldEdit, ROLES } from '../public/shared/workflow.js';
-import { SEVERITY_LEVELS, COMPONENTS, CHECK_BY_ID, CHECKLISTS, DEFAULT_PRIORITY, PRIORITIES } from '../public/shared/catalog.js';
+import { checkReportEdit, checkSeverityChange, EDITABLE_FIELDS, FIELD_COLUMNS } from '../public/shared/workflow.js';
+import { SEVERITY_LEVELS, COMPONENTS, CHECK_BY_ID, CHECKLISTS } from '../public/shared/catalog.js';
 import { matchPlanted, gradeSeverity } from './domain/matcher.js';
 import { PLANTED, publicPlanted } from './domain/planted.js';
 import { EXAMPLE_SUMMARIES } from '../public/shared/examples.js';
@@ -15,11 +17,10 @@ const rows = async (db, sql, p) => (await db.query(sql, p)).rows;
 const first = async (db, sql, p) => (await rows(db, sql, p))[0] || null;
 const clip = (s, n = 4000) => String(s ?? '').slice(0, n);
 
-export function parseActor(name, role) {
+export function parseActor(name) {
   const n = clip(String(name || '').trim(), 60);
-  if (!n) throw new AppError(401, 'Choose your name and role first (top right).');
-  if (!ROLES.includes(role)) throw new AppError(401, `Unknown role "${role}".`);
-  return { name: n, role };
+  if (n.length < 2) throw new AppError(401, 'Enter your name first (top right).');
+  return { name: n, role: 'Tester' };
 }
 
 function normalizeReport(input) {
@@ -38,7 +39,6 @@ function normalizeReport(input) {
     note: clip(input.note, 1000).trim(),
     labels: clip(input.labels, 200).trim() || 'None',
     suggestedSeverity: SEVERITY_LEVELS.includes(input.suggestedSeverity) ? input.suggestedSeverity : null,
-    priority: clip(input.priority, 20),
     runId: Number.isInteger(input.runId) ? input.runId : null,
     checkId: CHECK_BY_ID[input.checkId] ? input.checkId : null,
   };
@@ -49,33 +49,39 @@ async function history(db, bugId, actor, field, oldV, newV, reason = null) {
     [bugId, actor.name, actor.role, field, oldV == null ? null : String(oldV), newV == null ? null : String(newV), reason]);
 }
 
+// Match a report to a planted defect for this reporter. A defect the reporter
+// already found in another report is flagged as a possible duplicate instead.
+async function discover(db, r, reporter, exceptBugId = null) {
+  const isExample = EXAMPLE_SUMMARIES.includes(r.summary);
+  const match = isExample ? null : matchPlanted(r);
+  if (!match) return { plantedId: null, verdict: null, duplicateOf: null, isExample, match: null };
+  const prev = await first(db, 'SELECT key FROM bugs WHERE reporter = $1 AND planted_id = $2 AND id <> $3 ORDER BY id LIMIT 1', [reporter, match.planted.id, exceptBugId ?? -1]);
+  if (prev) return { plantedId: null, verdict: null, duplicateOf: prev.key, isExample, match };
+  return { plantedId: match.planted.id, verdict: gradeSeverity(match.planted, r.severity).verdict, duplicateOf: null, isExample, match };
+}
+
+const discoveryView = d => (d.plantedId
+  ? { found: true, planted: publicPlanted(d.match.planted, true), severityVerdict: d.verdict }
+  : { found: false, duplicateOf: d.duplicateOf, example: d.isExample });
+
 // ---------------------------------------------------------------- bugs
 export async function createBug(db, input, actor) {
-  if (actor.role === 'Developer') throw new AppError(403, 'Developers fix defects; reports are filed by Testers or Leads.');
   const r = normalizeReport(input);
   const lint = lintReport(r);
   if (!lint.canSubmit) throw new AppError(422, `The report has ${lint.errors} error(s). Fix them before submitting.`, { lint });
 
-  const priority = actor.role === 'Lead' && PRIORITIES.includes(r.priority) ? r.priority : DEFAULT_PRIORITY;
-  const isExample = EXAMPLE_SUMMARIES.includes(r.summary);
-  const match = isExample ? null : matchPlanted(r);
-  let plantedId = null; let verdict = null; let duplicateHint = null;
-  if (match) {
-    const prev = await first(db, 'SELECT key FROM bugs WHERE reporter = $1 AND planted_id = $2 ORDER BY id LIMIT 1', [actor.name, match.planted.id]);
-    if (prev) duplicateHint = prev.key;
-    else { plantedId = match.planted.id; verdict = gradeSeverity(match.planted, r.severity).verdict; }
-  }
+  const d = await discover(db, r, actor.name);
   let labels = r.labels;
-  if (r.checkId) labels = labels === 'None' ? r.checkId : `${labels}, ${r.checkId}`;
+  if (r.checkId && !labels.split(/,\s*/).includes(r.checkId)) labels = labels === 'None' ? r.checkId : `${labels}, ${r.checkId}`;
 
-  const bug = await first(db, `INSERT INTO bugs (summary, component, affects_version, priority, reporter, labels, environment, severity,
+  const bug = await first(db, `INSERT INTO bugs (summary, component, affects_version, reporter, labels, environment, severity,
       error_type, precondition, steps, actual, expected, note, suggested_severity, quality_score, quality_grade, planted_id, severity_verdict, run_id, check_id)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) RETURNING *`,
-  [r.summary, r.component, r.affectsVersion, priority, actor.name, labels, r.environment, r.severity, r.errorType, r.precondition,
-    JSON.stringify(r.steps), r.actual, r.expected, r.note, r.suggestedSeverity, lint.score, lint.grade, plantedId, verdict, r.runId, r.checkId]);
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING *`,
+  [r.summary, r.component, r.affectsVersion, actor.name, labels, r.environment, r.severity, r.errorType, r.precondition,
+    JSON.stringify(r.steps), r.actual, r.expected, r.note, r.suggestedSeverity, lint.score, lint.grade, d.plantedId, d.verdict, r.runId, r.checkId]);
   const key = `TC-${bug.id}`;
   await db.query('UPDATE bugs SET key = $1 WHERE id = $2', [key, bug.id]);
-  await history(db, bug.id, actor, 'created', null, 'Open');
+  await history(db, bug.id, actor, 'created', null, `quality ${lint.score}`);
 
   if (r.runId && r.checkId) {
     const run = await first(db, 'SELECT * FROM test_runs WHERE id = $1', [r.runId]);
@@ -85,11 +91,50 @@ export async function createBug(db, input, actor) {
       if (run.status === 'Not started') await db.query("UPDATE test_runs SET status = 'In progress' WHERE id = $1", [r.runId]);
     }
   }
+  return { key, lint, discovery: discoveryView(d) };
+}
 
-  return {
-    key, lint,
-    discovery: plantedId ? { found: true, planted: publicPlanted(match.planted, true), severityVerdict: verdict } : { found: false, duplicateOf: duplicateHint, example: isExample },
+// The reporter edits a submitted report. Same quality bar as on submission;
+// severity is locked (it changes only with a documented reason).
+export async function updateBug(db, key, input, actor) {
+  const bug = await getBug(db, key);
+  const allowed = checkReportEdit(bug, actor, { severity: input.severity });
+  if (!allowed.ok) throw new AppError(403, allowed.error);
+
+  const current = {
+    summary: bug.summary, component: bug.component, affectsVersion: bug.affects_version, environment: bug.environment, errorType: bug.error_type,
+    labels: bug.labels, precondition: bug.precondition, steps: bug.steps, actual: bug.actual, expected: bug.expected, note: bug.note,
   };
+  const incoming = normalizeReport({ ...current, ...Object.fromEntries(EDITABLE_FIELDS.filter(f => input[f] !== undefined).map(f => [f, input[f]])) });
+  const r = { ...incoming, severity: bug.severity, suggestedSeverity: bug.suggested_severity };
+  const changed = EDITABLE_FIELDS.filter(f => JSON.stringify(r[f]) !== JSON.stringify(current[f]));
+  if (!changed.length) throw new AppError(409, 'Nothing changed.');
+
+  const lint = lintReport(r);
+  if (!lint.canSubmit) throw new AppError(422, `The edited report has ${lint.errors} error(s). Fix them before saving.`, { lint });
+
+  // Keep an earlier planted-defect credit; otherwise try to match the improved report.
+  let d = { plantedId: bug.planted_id, verdict: bug.severity_verdict, duplicateOf: null, isExample: false, match: null };
+  let newlyFound = null;
+  if (!bug.planted_id) {
+    d = await discover(db, r, bug.reporter, bug.id);
+    if (d.plantedId) newlyFound = discoveryView(d);
+  }
+
+  const sets = []; const p = [];
+  for (const f of changed) { p.push(f === 'steps' ? JSON.stringify(r.steps) : r[f]); sets.push(`${FIELD_COLUMNS[f]} = $${p.length}`); }
+  for (const [col, v] of [['quality_score', lint.score], ['quality_grade', lint.grade], ['planted_id', d.plantedId], ['severity_verdict', d.verdict]]) { p.push(v); sets.push(`${col} = $${p.length}`); }
+  p.push(bug.id);
+  await db.query(`UPDATE bugs SET ${sets.join(', ')}, updated_at = now() WHERE id = $${p.length}`, p);
+
+  for (const f of changed) {
+    const show = v => (Array.isArray(v) ? v.map((s, i) => `${i + 1}. ${s}`).join('\n') : v);
+    await history(db, bug.id, actor, FIELD_COLUMNS[f], show(current[f]), show(r[f]));
+  }
+  if (lint.score !== bug.quality_score) await history(db, bug.id, actor, 'quality_score', bug.quality_score, lint.score);
+  if (newlyFound) await history(db, bug.id, actor, 'planted_id', null, d.plantedId, 'The edited report now describes a planted defect.');
+
+  return { key: bug.key, lint, changed, discovery: newlyFound || { found: !!d.plantedId, duplicateOf: d.duplicateOf } };
 }
 
 function shapeBug(b) {
@@ -100,13 +145,13 @@ function shapeBug(b) {
 
 export async function listBugs(db, f = {}) {
   const where = []; const p = [];
-  for (const [col, val] of [['status', f.status], ['severity', f.severity], ['component', f.component], ['reporter', f.reporter], ['assignee', f.assignee]]) {
+  for (const [col, val] of [['severity', f.severity], ['component', f.component], ['reporter', f.reporter], ['quality_grade', f.grade]]) {
     if (val) { p.push(val); where.push(`${col} = $${p.length}`); }
   }
   if (f.q) { p.push(`%${f.q}%`); where.push(`(summary ILIKE $${p.length} OR key ILIKE $${p.length})`); }
-  const sortCol = { created: 'id', severity: 'severity', score: 'quality_score', updated: 'updated_at' }[f.sort] || 'id';
+  const sortCol = { created: 'id', score: 'quality_score', updated: 'updated_at' }[f.sort] || 'id';
   const sql = `SELECT id, key, summary, status, component, priority, severity, reporter, assignee, resolution, quality_score, quality_grade, created_at, updated_at
-    FROM bugs ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY ${sortCol} DESC LIMIT 300`;
+    FROM bugs ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY ${sortCol} DESC, id DESC LIMIT 300`;
   return rows(db, sql, p);
 }
 
@@ -119,32 +164,15 @@ export async function getBug(db, key) {
   return b;
 }
 
-export async function transitionBug(db, key, to, actor, payload) {
+export async function changeSeverity(db, key, value, reasonId, actor) {
   const bug = await getBug(db, key);
-  let dupTarget = null;
-  if (payload.duplicateOf) dupTarget = await first(db, 'SELECT key, resolution, duplicate_of FROM bugs WHERE key = $1', [String(payload.duplicateOf).trim().toUpperCase()]);
-  const res = checkTransition(bug, to, actor, payload, { findBug: k => (dupTarget && dupTarget.key === k ? dupTarget : null) });
-  if (!res.ok) throw new AppError(409, res.error);
-  const sets = []; const p = [];
-  for (const [k, v] of Object.entries(res.changes)) { p.push(v); sets.push(`${k} = $${p.length}`); }
-  p.push(bug.id);
-  await db.query(`UPDATE bugs SET ${sets.join(', ')}, updated_at = now() WHERE id = $${p.length}`, p);
-  for (const [k, v] of Object.entries(res.changes)) if (String(bug[k] ?? '') !== String(v ?? '')) await history(db, bug.id, actor, k, bug[k], v);
-  if (res.comment) await db.query('INSERT INTO comments (bug_id, author, role, body) VALUES ($1,$2,$3,$4)', [bug.id, actor.name, actor.role, clip(res.comment, 4000)]);
-  return getBug(db, key);
-}
-
-export async function editBugField(db, key, field, value, actor, payload = {}) {
-  const bug = await getBug(db, key);
-  const res = checkFieldEdit(bug, field, value, actor, payload);
+  const res = checkSeverityChange(bug, value, actor, reasonId);
   if (!res.ok) throw new AppError(403, res.error);
-  const [[col, v]] = Object.entries(res.changes);
-  if (String(bug[col]) === String(v)) throw new AppError(409, `${field} is already "${v}".`);
-  await db.query(`UPDATE bugs SET ${col} = $1, updated_at = now() WHERE id = $2`, [v, bug.id]);
-  await history(db, bug.id, actor, col, bug[col], v, res.reason || null);
-  if (col === 'severity' && bug.planted_id) {
+  await db.query('UPDATE bugs SET severity = $1, updated_at = now() WHERE id = $2', [value, bug.id]);
+  await history(db, bug.id, actor, 'severity', bug.severity, value, res.reason);
+  if (bug.planted_id) {
     const p = PLANTED.find(x => x.id === bug.planted_id);
-    await db.query('UPDATE bugs SET severity_verdict = $1 WHERE id = $2', [gradeSeverity(p, v).verdict, bug.id]);
+    await db.query('UPDATE bugs SET severity_verdict = $1 WHERE id = $2', [gradeSeverity(p, value).verdict, bug.id]);
   }
   return getBug(db, key);
 }
@@ -208,7 +236,6 @@ export async function getRun(db, id) {
 export async function setResult(db, runId, checkId, input, actor) {
   const run = await getRun(db, runId);
   if (run.status === 'Completed') throw new AppError(409, 'This run is completed and locked.');
-  if (actor.role === 'Developer') throw new AppError(403, 'Test runs are executed by Testers or Leads.');
   if (!run.items.some(i => i.id === checkId)) throw new AppError(400, `${checkId} is not part of this run.`);
   const result = input.result;
   if (!RESULTS.includes(result)) throw new AppError(400, `Result must be one of ${RESULTS.join(', ')}.`);
@@ -230,7 +257,6 @@ export async function setResult(db, runId, checkId, input, actor) {
 export async function completeRun(db, runId, actor) {
   const run = await getRun(db, runId);
   if (run.status === 'Completed') throw new AppError(409, 'Already completed.');
-  if (actor.role === 'Developer') throw new AppError(403, 'Only Testers or Leads complete runs.');
   const problems = [];
   run.items.forEach(i => {
     if (i.result === 'Not run') problems.push(`${i.id}: not executed (mark N/A with a reason if it does not apply).`);
@@ -243,7 +269,7 @@ export async function completeRun(db, runId, actor) {
 
 // ---------------------------------------------------------------- stats
 export async function stats(db, reporter) {
-  const bugs = await rows(db, 'SELECT key, status, severity, component, reporter, quality_score, planted_id, severity_verdict, created_at FROM bugs');
+  const bugs = await rows(db, 'SELECT key, severity, component, reporter, quality_score, quality_grade, planted_id, severity_verdict, created_at FROM bugs');
   const by = k => bugs.reduce((acc, b) => { acc[b[k]] = (acc[b[k]] || 0) + 1; return acc; }, {});
   const people = {};
   for (const b of bugs) {
@@ -261,8 +287,8 @@ export async function stats(db, reporter) {
   const foundMap = Object.fromEntries(mine.map(b => [b.planted_id, b]));
   const discovery = [...PLANTED].sort((a, b) => a.id.localeCompare(b.id)).map(p => ({ ...publicPlanted(p, !!foundMap[p.id]), foundIn: foundMap[p.id]?.key || null, verdict: foundMap[p.id]?.severity_verdict || null }));
   return {
-    totals: { bugs: bugs.length, open: bugs.filter(b => !['Closed', 'Resolved'].includes(b.status)).length, avgScore: bugs.length ? Math.round(bugs.reduce((s, b) => s + b.quality_score, 0) / bugs.length) : 0 },
-    byStatus: by('status'), bySeverity: by('severity'), byComponent: by('component'),
+    totals: { bugs: bugs.length, testers: new Set(bugs.map(b => b.reporter)).size, avgScore: bugs.length ? Math.round(bugs.reduce((s, b) => s + b.quality_score, 0) / bugs.length) : 0 },
+    byGrade: by('quality_grade'), bySeverity: by('severity'), byComponent: by('component'),
     leaderboard, discovery, plantedTotal: PLANTED.length,
   };
 }

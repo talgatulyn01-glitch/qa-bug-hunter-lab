@@ -1,15 +1,17 @@
 // Demo data so the mentor sees a populated tracker on first visit.
-// Runs once per database (guarded by the meta table, safe under concurrency).
-import { createBug, transitionBug, editBugField, createRun, setResult, addComment } from './services.js';
+// Runs once per SEED_VERSION (guarded by the meta table, safe under concurrency).
+// A new SEED_VERSION wipes all app data once and reseeds; bump it only on purpose.
+import { createBug, updateBug, createRun, setResult, addComment } from './services.js';
 
-const tester = { name: 'Aida (demo tester)', role: 'Tester' };
-const dev = { name: 'Daniyar (demo dev)', role: 'Developer' };
-const lead = { name: 'Marat (demo lead)', role: 'Lead' };
+const SEED_VERSION = 'seed_v2_tester_only';
+const aida = { name: 'Aida (demo tester)', role: 'Tester' };
+const bekzat = { name: 'Bekzat (demo tester)', role: 'Tester' };
 const ENV = 'OS: Windows 11 Browser: Chrome 131';
 
 export async function seed(db) {
-  const claim = await db.query("INSERT INTO meta (k, v) VALUES ('seeded', now()::text) ON CONFLICT (k) DO NOTHING RETURNING k");
+  const claim = await db.query('INSERT INTO meta (k, v) VALUES ($1, now()::text) ON CONFLICT (k) DO NOTHING RETURNING k', [SEED_VERSION]);
   if (!claim.rows.length) return;
+  await db.query('TRUNCATE bugs, bug_history, comments, test_runs, run_results, shop_accounts, shop_orders, shop_reviews RESTART IDENTITY CASCADE');
 
   await db.query(`INSERT INTO shop_reviews (session, author, rating, body) VALUES
     ('seed', 'Olzhas', 5, 'Fast delivery, the mug is exactly as in the picture.'),
@@ -27,32 +29,31 @@ export async function seed(db) {
     ],
     actual: 'With quantity "10" the total is 72.09 (8.90 × 10 = 89.00 minus 19%). With quantity "9" the total is 80.10 (no discount). The values are consistent with the 10% discount being applied twice. Reproduced 3/3 times for quantities 10, 11 and 25 in Chrome 131 and Firefox 133.',
     expected: 'With quantity 10 the total is 80.10: a single 10% bulk discount is applied (BR9).',
-  }, tester);
+  }, aida);
+  await addComment(db, a.key, 'Confirmed in Edge 131 as well, same totals.', bekzat);
 
-  const b = await createBug(db, {
+  await createBug(db, {
     summary: 'Menu: item is named "Basket" on the Cart page',
     component: 'Menu', affectsVersion: 'LiteShop 1.0', environment: ENV, severity: 'Minor', errorType: 'GUI', suggestedSeverity: 'Minor',
     steps: ['Open the LiteShop sandbox (/sandbox/#/home)', 'Look at the menu item names', 'Click "Cart" in the menu', 'Compare the menu item names with step 2'],
-    actual: 'On the Cart page the fourth menu item is named "Basket"; on Home, Catalog, Orders, Profile, Reviews and Sign up it is named "Cart". Reproduced every time in Chrome 131.',
+    actual: 'On the Cart page the third menu item is named "Basket"; on Home, Catalog, Orders, Profile, Reviews and Sign up it is named "Cart". Reproduced every time in Chrome 131.',
     expected: 'The menu item is named "Cart" on all pages (BR2).',
-  }, tester);
-  await transitionBug(db, b.key, 'In Progress', dev, {}); // auto-assigns the developer
-  await transitionBug(db, b.key, 'Resolved', dev, { resolution: 'Fixed', comment: 'Renamed the menu label on the Cart page. Ready for verification.' });
+  }, aida);
 
+  // Submitted with a warning (no requirement cited), then improved by its reporter.
   const c = await createBug(db, {
     summary: 'Sign up: button name is "Create acount"',
     component: 'Sign up', affectsVersion: 'LiteShop 1.0', environment: ENV, severity: 'Average', errorType: 'GUI', suggestedSeverity: 'Average',
     steps: ['Open the LiteShop sandbox (/sandbox/#/signup)', 'Check the "Terms" checkbox', 'Read the name of the submit button'],
     actual: 'The submit button reads "Create acount" (one "c" missing). The button is the main call to action of the page. Reproduced every time in Chrome 131 and Firefox 133.',
-    expected: 'The button name has no spelling errors: "Create account" (BR16).',
+    expected: 'The button name has no spelling errors: "Create account".',
     labels: 'typo',
-  }, tester);
-  await editBugField(db, c.key, 'priority', 'Minor', lead);
-  await addComment(db, c.key, 'Raised from Minor to Average (R1: obvious typo in a well-visible place). Agreed with the team.', tester);
+  }, bekzat);
+  await updateBug(db, c.key, { expected: 'The button name has no spelling errors: "Create account" (BR16).' }, bekzat);
+  await addComment(db, c.key, 'Severity raised from Minor to Average by R1: an obvious typo in a well-visible place.', bekzat);
 
-  const run = await createRun(db, { name: 'Smoke: Sign up form', target: 'Sign up', checklists: ['BTN'] }, tester);
-  await setResult(db, run.id, 'BTN-1.1', { result: 'Pass' }, tester);
-  await setResult(db, run.id, 'BTN-2.1', { result: 'Fail', bugKey: c.key }, tester);
-  await setResult(db, run.id, 'BTN-1.4', { result: 'N/A', note: 'There are no closely located buttons on the form.' }, tester);
-  return { a, b, c };
+  const run = await createRun(db, { name: 'Smoke: Sign up form', target: 'Sign up', checklists: ['BTN'] }, bekzat);
+  await setResult(db, run.id, 'BTN-1.1', { result: 'Pass' }, bekzat);
+  await setResult(db, run.id, 'BTN-2.1', { result: 'Fail', bugKey: c.key }, bekzat);
+  await setResult(db, run.id, 'BTN-1.4', { result: 'N/A', note: 'There are no closely located buttons on the form.' }, bekzat);
 }

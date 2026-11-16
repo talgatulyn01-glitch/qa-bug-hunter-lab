@@ -1,8 +1,11 @@
-// API client + current actor (name & role chosen in the header).
+// API client + current tester (name chosen in the header).
 const KEY = 'qalab.actor';
 
 export function getActor() {
-  try { return JSON.parse(localStorage.getItem(KEY)) || null; } catch { return null; }
+  try {
+    const a = JSON.parse(localStorage.getItem(KEY));
+    return a && a.name ? { name: a.name, role: 'Tester' } : null;
+  } catch { return null; }
 }
 export function setActor(a) {
   try { localStorage.setItem(KEY, JSON.stringify(a)); } catch { /* storage unavailable */ }
@@ -16,7 +19,7 @@ export class ApiError extends Error {
 export async function api(method, path, body) {
   const actor = getActor();
   const headers = { 'Content-Type': 'application/json' };
-  if (actor) { headers['X-User-Name'] = encodeURIComponent(actor.name); headers['X-User-Role'] = actor.role; }
+  if (actor) headers['X-User-Name'] = encodeURIComponent(actor.name);
   const res = await fetch('/api' + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
   let data = null;
   try { data = await res.json(); } catch { /* empty */ }

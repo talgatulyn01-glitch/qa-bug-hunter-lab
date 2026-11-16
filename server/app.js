@@ -2,7 +2,7 @@
 import express from 'express';
 import { getDb, dbMode } from './db.js';
 import {
-  AppError, parseActor, createBug, listBugs, getBug, transitionBug, editBugField, addComment,
+  AppError, parseActor, createBug, updateBug, listBugs, getBug, changeSeverity, addComment,
   createRun, listRuns, getRun, setResult, completeRun, stats,
 } from './services.js';
 import { shopRoutes } from './shop.js';
@@ -24,7 +24,7 @@ const wrap = fn => async (req, res) => {
     res.status(status).json({ error: err.message || 'Server error', ...(err.extra || {}) });
   }
 };
-const actorOf = req => parseActor(decodeURIComponent(req.get('X-User-Name') || ''), req.get('X-User-Role'));
+const actorOf = req => parseActor(decodeURIComponent(req.get('X-User-Name') || ''));
 
 app.get('/api/health', wrap(async () => { await getDb(); return { ok: true, db: dbMode }; }));
 
@@ -35,8 +35,8 @@ app.post('/api/severity', wrap(async req => evaluateSeverity(req.body || {})));
 app.get('/api/bugs', wrap(async req => listBugs(await getDb(), req.query)));
 app.post('/api/bugs', wrap(async (req, res) => { const out = await createBug(await getDb(), req.body || {}, actorOf(req)); res.status(201); return out; }));
 app.get('/api/bugs/:key', wrap(async req => getBug(await getDb(), req.params.key)));
-app.post('/api/bugs/:key/transition', wrap(async req => transitionBug(await getDb(), req.params.key, req.body?.to, actorOf(req), req.body || {})));
-app.patch('/api/bugs/:key', wrap(async req => editBugField(await getDb(), req.params.key, req.body?.field, req.body?.value, actorOf(req), req.body || {})));
+app.put('/api/bugs/:key', wrap(async req => updateBug(await getDb(), req.params.key, req.body || {}, actorOf(req))));
+app.post('/api/bugs/:key/severity', wrap(async req => changeSeverity(await getDb(), req.params.key, req.body?.value, req.body?.reasonId, actorOf(req))));
 app.post('/api/bugs/:key/comments', wrap(async req => addComment(await getDb(), req.params.key, req.body?.body, actorOf(req))));
 
 app.get('/api/runs', wrap(async () => listRuns(await getDb())));
